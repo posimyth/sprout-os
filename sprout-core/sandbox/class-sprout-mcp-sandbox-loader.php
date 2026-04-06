@@ -74,21 +74,23 @@ final class Sprout_MCP_Sandbox_Preflight_Strategy implements Sprout_MCP_Sandbox_
             $age = time() - (int) filemtime($state->sentinel_loading);
 
             if ($age > $this->legacy_crash_threshold) {
-                $stale_pid = trim((string) @file_get_contents($state->sentinel_loading));
-                $pid_alive = ($stale_pid !== '' && $stale_pid !== '0'
+                $stale_pid = $this->read_loading_sentinel_pid($state->sentinel_loading);
+                $pid_alive = ($stale_pid > 0
                     && function_exists('posix_getpgid')
-                    && @posix_getpgid((int) $stale_pid) !== false);
+                    && @posix_getpgid($stale_pid) !== false);
 
                 if ($pid_alive) {
                     // Process still running — this is a slow request, not a crash.
                     // Do nothing, let it finish.
                 } else {
-                    // Process dead + sentinel stale = likely crashed.
-                    // But only enter safe mode if sandbox has files to load.
+                    // Only trust stale-loading crash detection when the marker
+                    // clearly belongs to a sandbox load from this process model.
+                    // Older sentinels may contain UUIDs or partial writes.
                     $has_files = Sprout_MCP_Sandbox_Helper::discover_entries($state->sandbox_dir) !== [];
+                    $can_trust_stale_loading = ($stale_pid > 0) || !function_exists('posix_getpgid');
                     wp_delete_file($state->sentinel_loading);
 
-                    if ($has_files) {
+                    if ($has_files && $can_trust_stale_loading) {
                         @file_put_contents($state->sentinel_crashed, '1', LOCK_EX);
                         $state->safe_mode = true;
                     }
@@ -109,6 +111,25 @@ final class Sprout_MCP_Sandbox_Preflight_Strategy implements Sprout_MCP_Sandbox_
             do_action('sprout_mcp_sandbox_safe_mode', $state->sentinel_crashed);
             $state->halt = true;
         }
+    }
+
+    private function read_loading_sentinel_pid(string $sentinel_loading): int
+    {
+        $raw = trim((string) @file_get_contents($sentinel_loading));
+        if ($raw === '') {
+            return 0;
+        }
+
+        if (ctype_digit($raw)) {
+            return (int) $raw;
+        }
+
+        $decoded = json_decode($raw, true);
+        if (is_array($decoded) && isset($decoded['pid']) && is_numeric($decoded['pid'])) {
+            return (int) $decoded['pid'];
+        }
+
+        return 0;
     }
 
     private function register_admin_notices(Sprout_MCP_Sandbox_Load_State $state): void
@@ -246,38 +267,44 @@ final class Sprout_MCP_Sandbox_Execution_Strategy implements Sprout_MCP_Sandbox_
         }
 
         do_action('sprout_mcp_before_sandbox_load', $state->validated_files);
-        $loader_marker = (string) wp_generate_uuid4();
+        $loader_marker = wp_json_encode([
+            'pid'  => function_exists('getmypid') ? (int) getmypid() : 0,
+            'time' => time(),
+        ]);
         @file_put_contents($state->sentinel_loading, $loader_marker, LOCK_EX);
 
         $current_file_ref = '';
         register_shutdown_function(static function () use ($state, &$current_file_ref): void {
             $error = error_get_last();
-            if ($error === null) {
-                return;
-            }
+            try {
+                if ($error === null) {
+                    return;
+                }
 
-            $fatal_types = E_ERROR | E_PARSE | E_CORE_ERROR | E_COMPILE_ERROR;
-            if (!($error['type'] & $fatal_types)) {
-                return;
-            }
+                $fatal_types = E_ERROR | E_PARSE | E_CORE_ERROR | E_COMPILE_ERROR;
+                if (!($error['type'] & $fatal_types)) {
+                    return;
+                }
 
-            $error_file = (string) ($error['file'] ?? '');
-            $crashed_file = '';
+                $error_file = (string) ($error['file'] ?? '');
+                $crashed_file = '';
 
-            if ($current_file_ref !== '' && file_exists($current_file_ref)) {
-                $crashed_file = $current_file_ref;
-            } elseif (str_starts_with($error_file, $state->sandbox_dir)) {
-                $crashed_file = $error_file;
-            }
+                if ($current_file_ref !== '' && file_exists($current_file_ref)) {
+                    $crashed_file = $current_file_ref;
+                } elseif ($error_file !== '' && str_starts_with($error_file, $state->sandbox_dir)) {
+                    $crashed_file = $error_file;
+                }
 
-            if ($crashed_file !== '') {
+                // Unrelated request fatals must not put the sandbox into safe mode.
+                if ($crashed_file === '') {
+                    return;
+                }
+
                 @file_put_contents($state->sentinel_crashed, $crashed_file, LOCK_EX);
-            } else {
-                @file_put_contents($state->sentinel_crashed, '1', LOCK_EX);
-            }
-
-            if (file_exists($state->sentinel_loading)) {
-                wp_delete_file($state->sentinel_loading);
+            } finally {
+                if (file_exists($state->sentinel_loading)) {
+                    wp_delete_file($state->sentinel_loading);
+                }
             }
         });
 
