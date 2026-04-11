@@ -77,6 +77,7 @@ function sprout_mcp_validate_theme_php_syntax(string $content)
         return new WP_Error('temp_file_failed', __('Unable to create a temporary file for PHP validation.', 'sprout-os'));
     }
 
+    // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Local filesystem write.
     file_put_contents($tmp_file, $content);
 
     // Use Sandbox Helper's timeout-safe lint if available.
@@ -110,27 +111,11 @@ function sprout_mcp_get_php_cli_binary()
 {
     $candidates = array_filter([
         defined('PHP_BINARY') ? PHP_BINARY : '',
-        '/Applications/MAMP/bin/php/php8.3.14/bin/php',
-        '/Applications/MAMP/bin/php/php8.2.26/bin/php',
-        '/opt/homebrew/bin/php',
-        '/usr/local/bin/php',
-        '/usr/bin/php',
-        'php',
+        PHP_BINDIR . '/php',
     ]);
 
     foreach ($candidates as $candidate) {
         $candidate = (string) $candidate;
-
-        if ($candidate === 'php') {
-            $output = [];
-            $code = 0;
-            exec('command -v php 2>/dev/null', $output, $code);
-            if ($code === 0 && !empty($output[0])) {
-                return trim((string) $output[0]);
-            }
-
-            continue;
-        }
 
         if (is_executable($candidate)) {
             return $candidate;

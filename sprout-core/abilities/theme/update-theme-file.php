@@ -76,6 +76,11 @@ function sprout_mcp_update_theme_file_ability(array $input)
         return new WP_Error('unsupported_theme_file', __('This theme file type is not allowed for MCP writes.', 'sprout-os'));
     }
 
+    $safe_type = sprout_mcp_assert_safe_mutable_file_type($absolute);
+    if (is_wp_error($safe_type)) {
+        return $safe_type;
+    }
+
     $dir = dirname($absolute);
     if (!is_dir($dir) && !wp_mkdir_p($dir)) {
         return new WP_Error('theme_directory_create_failed', __('Failed to create the target theme directory.', 'sprout-os'));
@@ -85,6 +90,7 @@ function sprout_mcp_update_theme_file_ability(array $input)
         return new WP_Error('theme_file_missing', __('Target theme file does not exist and create_if_missing is false.', 'sprout-os'));
     }
 
+    // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Local filesystem read.
     $existing = is_file($absolute) ? file_get_contents($absolute) : '';
     if ($existing === false) {
         return new WP_Error('theme_file_read_failed', __('Failed to read the existing theme file.', 'sprout-os'));
@@ -103,6 +109,7 @@ function sprout_mcp_update_theme_file_ability(array $input)
         }
     }
 
+    // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Local filesystem write.
     $bytes = file_put_contents($absolute, $final_content);
     if ($bytes === false) {
         return new WP_Error('theme_file_write_failed', __('Failed to write the theme file.', 'sprout-os'));

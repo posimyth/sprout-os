@@ -91,6 +91,7 @@ final class Sprout_MCP_Sandbox_Preflight_Strategy implements Sprout_MCP_Sandbox_
                     wp_delete_file($state->sentinel_loading);
 
                     if ($has_files && $can_trust_stale_loading) {
+                        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Local filesystem write.
                         @file_put_contents($state->sentinel_crashed, '1', LOCK_EX);
                         $state->safe_mode = true;
                     }
@@ -115,6 +116,7 @@ final class Sprout_MCP_Sandbox_Preflight_Strategy implements Sprout_MCP_Sandbox_
 
     private function read_loading_sentinel_pid(string $sentinel_loading): int
     {
+        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Local filesystem read.
         $raw = trim((string) @file_get_contents($sentinel_loading));
         if ($raw === '') {
             return 0;
@@ -271,6 +273,7 @@ final class Sprout_MCP_Sandbox_Execution_Strategy implements Sprout_MCP_Sandbox_
             'pid'  => function_exists('getmypid') ? (int) getmypid() : 0,
             'time' => time(),
         ]);
+        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Local filesystem write.
         @file_put_contents($state->sentinel_loading, $loader_marker, LOCK_EX);
 
         $current_file_ref = '';
@@ -300,6 +303,7 @@ final class Sprout_MCP_Sandbox_Execution_Strategy implements Sprout_MCP_Sandbox_
                     return;
                 }
 
+                // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Local filesystem write.
                 @file_put_contents($state->sentinel_crashed, $crashed_file, LOCK_EX);
             } finally {
                 if (file_exists($state->sentinel_loading)) {

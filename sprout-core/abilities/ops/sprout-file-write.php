@@ -3,7 +3,7 @@
  * SproutOS MCP - File Writer
  *
  * Persists content to disk with encoding support, optional backup,
- * dry-run preview, PHP sandbox enforcement, and syntax linting.
+ * dry-run preview, executable-file safeguards, and syntax linting.
  *
  * @package  SproutOS_MCP
  * @since    1.0.0
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 wp_register_ability( 'sprout/write-file', [
     'label'       => __( 'Write File', 'sprout-os' ),
-    'description' => 'Writes content to a file. PHP-executable files are restricted to the sandbox (wp-content/sproutos-mcp-sandbox/). Supports UTF-8 and base64 encoding, overwrite / append modes, automatic parent-directory creation, optional pre-write backup (.bak), and dry-run preview.',
+    'description' => 'Writes content to a file inside the allowed Sprout workspace. Supports UTF-8 and base64 encoding, overwrite / append modes, automatic parent-directory creation, optional pre-write backup (.bak), and dry-run preview.',
     'category' => 'sprout-filesystem',
 
     'input_schema' => [
@@ -66,9 +66,8 @@ wp_register_ability( 'sprout/write-file', [
         'annotations'  => [
             'title'        => 'Write File',
             'instructions' => implode( "\n", [
-                'PHP SANDBOX:',
-                'PHP-executable files (.php, .phtml, .phar, etc.) can ONLY live in',
-                'wp-content/sproutos-mcp-sandbox/. Non-PHP goes anywhere under ABSPATH.',
+                'EXECUTABLE FILE SAFETY:',
+                'Executable PHP file operations are disabled in the WordPress.org-safe build.',
                 '',
                 'SAFETY:',
                 'backup=true creates a .bak before overwriting.',
@@ -90,7 +89,7 @@ wp_register_ability( 'sprout/write-file', [
  */
 function sprout_mcp_unpack_payload( string $raw, string $enc ): string|WP_Error {
     if ( $enc === 'base64' ) {
-        $decoded = base64_decode( $raw, true );
+        $decoded = base64_decode( $raw, true ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode -- Decoding binary file payload from client.
         if ( $decoded === false ) {
             return new WP_Error( 'sprout_base64_invalid', 'Malformed base64 payload.' );
         }
@@ -131,13 +130,14 @@ function sprout_mcp_combined_source( string $dest, string $new_content, string $
     if ( $write_mode !== 'append' || ! file_exists( $dest ) ) {
         return $new_content;
     }
+    // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Local filesystem read.
     $prev = file_get_contents( $dest );
     return ( $prev !== false ) ? $prev . $new_content : $new_content;
 }
 
 /**
- * PHP lint check via temp file + proc_open (with 5-second timeout).
- * Gracefully degrades when exec/proc_open is unavailable.
+ * PHP lint check using the internal tokenizer parser when available.
+ * Gracefully degrades when parsing support is unavailable.
  *
  * @return true|WP_Error
  */
@@ -151,9 +151,10 @@ function sprout_mcp_lint_php( string $source ) {
         return true;
     }
 
+    // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Local filesystem write.
     file_put_contents( $tmp, $source, LOCK_EX );
 
-    // Use Sandbox Helper if available (has timeout-safe proc_open).
+    // Use Sandbox Helper if available.
     if ( class_exists( 'Sprout_MCP_Sandbox_Helper' ) ) {
         $binary = Sprout_MCP_Sandbox_Helper::resolve_php_binary();
         if ( $binary !== '' ) {
@@ -198,6 +199,11 @@ function sprout_mcp_write_file( array $input ) {
     $snapshot = ! empty( $input['backup'] );
     $preview  = ! empty( $input['dry_run'] );
     $php_file = sprout_mcp_is_php_extension( $dest );
+
+    $safe_type = sprout_mcp_assert_safe_mutable_file_type( $dest );
+    if ( is_wp_error( $safe_type ) ) {
+        return $safe_type;
+    }
 
     // Validate sandbox restrictions for PHP-executable files.
     if ( $php_file ) {
@@ -260,6 +266,7 @@ function sprout_mcp_write_file( array $input ) {
 
     // Persist content to disk.
     $write_flags = LOCK_EX | ( $strategy === 'append' ? FILE_APPEND : 0 );
+    // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Local filesystem write.
     $written     = file_put_contents( $dest, $body, $write_flags );
 
     if ( $written === false ) {

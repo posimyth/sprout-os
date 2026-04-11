@@ -95,8 +95,8 @@ wp_register_ability('sprout/edit-file', [
                 '• The response includes context_lines around the edit (default 3).',
                 '• Use this to verify the edit landed in the correct location.',
                 '',
-                'PHP SANDBOX:',
-                '• PHP-executable files can only be edited inside the sandbox directory.',
+                'EXECUTABLE FILE SAFETY:',
+                '• Executable PHP file edits are disabled in the WordPress.org-safe build.',
             ]),
             'readonly'    => false,
             'destructive' => false,
@@ -131,6 +131,11 @@ function sprout_mcp_edit_file(array $input)
         return $sensitive;
     }
 
+    $safe_type = sprout_mcp_assert_safe_mutable_file_type($resolved);
+    if (is_wp_error($safe_type)) {
+        return $safe_type;
+    }
+
     if (!is_file($resolved)) {
         return new WP_Error('sprout_not_file', sprintf('Not an editable file: %s', $resolved));
     }
@@ -149,6 +154,7 @@ function sprout_mcp_edit_file(array $input)
         return new WP_Error('sprout_no_change', 'Old and new text are identical - nothing to do.');
     }
 
+    // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Local filesystem read.
     $content = file_get_contents($resolved);
     if ($content === false) {
         return new WP_Error('sprout_read_failed', sprintf('Cannot read: %s', $resolved));
@@ -204,6 +210,7 @@ function sprout_mcp_edit_file(array $input)
     }
 
     // Write the edited content.
+    // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Local filesystem write.
     $bytes = file_put_contents($resolved, $new_content, LOCK_EX);
     if ($bytes === false) {
         return new WP_Error('sprout_write_failed', sprintf('Cannot write: %s', $resolved));
@@ -304,5 +311,5 @@ function sprout_mcp_edit_validate_sandbox_php(string $resolved, string $new_cont
         return true;
     }
 
-    return sprout_mcp_validate_php_syntax($new_content);
+    return sprout_mcp_lint_php($new_content);
 }

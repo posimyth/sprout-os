@@ -188,6 +188,7 @@ function sprout_mcp_fetch_bytes( string $filepath, array $input, int $total_byte
     $was_cut   = $cap !== -1 && ( $skip + $got ) < $total_bytes;
     $text_safe = sprout_mcp_content_is_text( $mime, $raw );
 
+    // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- Binary content encoding for safe JSON transport.
     $envelope['content']    = $text_safe ? $raw : base64_encode( $raw );
     $envelope['encoding']   = $text_safe ? 'utf-8' : 'base64';
     $envelope['bytes_read'] = $got;

@@ -243,6 +243,40 @@ function sprout_mcp_is_php_extension( string $filepath ): bool {
 }
 
 /**
+ * Block executable or active-content file writes/edits in WordPress.org-safe builds.
+ *
+ * @param string $abs_path Resolved absolute path.
+ * @return true|WP_Error
+ */
+function sprout_mcp_assert_safe_mutable_file_type( string $abs_path ) {
+    $ext = strtolower( pathinfo( $abs_path, PATHINFO_EXTENSION ) );
+    $blocked = [
+        'php', 'phtml', 'php3', 'php4', 'php5', 'php7', 'php8', 'phar', 'phps',
+        'js', 'mjs', 'cjs', 'html', 'htm', 'svg', 'sh', 'bash', 'zsh', 'bat', 'cmd', 'ps1',
+    ];
+
+    if ( ! in_array( $ext, $blocked, true ) ) {
+        return true;
+    }
+
+    if ( sprout_mcp_is_wporg_safe_build() ) {
+        // Allow executable file writes inside the sandbox directory.
+        // Sandbox is a controlled environment - files are validated before loading.
+        $sandbox_check = sprout_mcp_validate_sandbox_path( $abs_path );
+        if ( $sandbox_check === true ) {
+            return true;
+        }
+
+        return new WP_Error(
+            'sprout_active_content_files_disabled',
+            __( 'Executable or active-content file operations are disabled in this WordPress.org-safe build. Use the sandbox directory for PHP files.', 'sprout-os' )
+        );
+    }
+
+    return true;
+}
+
+/**
  * PHP files may only live inside the sandbox.
  *
  * @param string $abs_path Resolved absolute path.

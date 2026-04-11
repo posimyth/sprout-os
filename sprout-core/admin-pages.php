@@ -174,8 +174,10 @@ function sprout_mcp_register_admin_menu(): void
     $menu_icon      = 'dashicons-admin-generic';
 
     if (is_readable($menu_icon_file)) {
+        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Local filesystem read.
         $svg_contents = file_get_contents($menu_icon_file);
         if ($svg_contents !== false && $svg_contents !== '') {
+            // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- SVG data URI for admin menu icon.
             $menu_icon = 'data:image/svg+xml;base64,' . base64_encode($svg_contents);
         }
     }
@@ -228,9 +230,6 @@ function sprout_mcp_enqueue_admin_assets(string $hook): void
         SPROUT_MCP_VERSION
     );
 
-    // Hide all WP admin notices on our page - they break the shell layout.
-    remove_all_actions('admin_notices');
-    remove_all_actions('all_admin_notices');
 }
 add_action('admin_enqueue_scripts', 'sprout_mcp_enqueue_admin_assets', 999);
 
@@ -244,8 +243,9 @@ function sprout_mcp_render_main_page(): void
     }
 
     // -- Handle settings save --
-    if (sanitize_text_field(wp_unslash($_POST['sprout_mcp_save_settings'] ?? '')) !== '') {
-        check_admin_referer('sprout_mcp_settings');
+    // phpcs:ignore WordPress.Security.NonceVerification.Missing -- Nonce is verified immediately after this gate check.
+    if ( isset( $_POST['sprout_mcp_save_settings'] ) && sanitize_text_field( wp_unslash( $_POST['sprout_mcp_save_settings'] ) ) !== '' ) {
+        check_admin_referer( 'sprout_mcp_settings' );
 
         $enabled = isset($_POST['sprout_mcp_ai_abilities_enabled']) ? '1' : '0';
         update_option('sprout_mcp_ai_abilities_enabled', $enabled);
@@ -873,10 +873,10 @@ function sprout_mcp_render_ai_abilities_tab_content(array $settings, array $grou
             if ($analytics_on && class_exists('Sprout_MCP_Analytics')) {
                 global $wpdb;
                 $log_table = $wpdb->prefix . 'sprout_mcp_logs';
-                // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, PluginCheck.Security.DirectDB.UnescapedDBParameter, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-                if ($wpdb->get_var("SHOW TABLES LIKE '{$log_table}'")) {
-                    // phpcs:ignore PluginCheck.Security.DirectDB.UnescapedDBParameter, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-                    $raw = $wpdb->get_results("SELECT ability_name, COUNT(*) as cnt FROM {$log_table} WHERE ability_name IS NOT NULL GROUP BY ability_name");
+                // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+                if ($wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $log_table ) )) {
+                    // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+                    $raw = $wpdb->get_results( $wpdb->prepare( 'SELECT ability_name, COUNT(*) as cnt FROM %i WHERE ability_name IS NOT NULL GROUP BY ability_name', $log_table ) );
                     $log_map = [];
                     foreach ($raw as $r) { $log_map[$r->ability_name] = (int) $r->cnt; }
                     foreach ($grouped_abilities as $_grp) {
@@ -3033,20 +3033,17 @@ function sprout_mcp_ajax_view_sandbox_source(): void
 {
     if (!current_user_can('manage_options')) {
         wp_send_json_error(['message' => __('Permission denied.', 'sprout-os')], 403);
-        wp_die();
     }
 
     check_ajax_referer('sprout_mcp_sandbox_source', 'nonce');
 
     if (!defined('SPROUT_MCP_SANDBOX_DIR')) {
         wp_send_json_error(['message' => __('Sandbox directory not configured.', 'sprout-os')]);
-        wp_die();
     }
 
     $file = sanitize_file_name(wp_unslash($_POST['file'] ?? ''));
-    if ($file === '' || (!str_ends_with($file, '.php') && !str_ends_with($file, '.php.disabled'))) {
+    if ($file === '') {
         wp_send_json_error(['message' => __('Invalid file name.', 'sprout-os')]);
-        wp_die();
     }
 
     $sandbox_dir = SPROUT_MCP_SANDBOX_DIR;
@@ -3059,7 +3056,6 @@ function sprout_mcp_ajax_view_sandbox_source(): void
 
     if (!file_exists($filepath)) {
         wp_send_json_error(['message' => __('File not found.', 'sprout-os')]);
-        wp_die();
     }
 
     // Verify the resolved path is inside the sandbox (prevent traversal).
@@ -3067,17 +3063,15 @@ function sprout_mcp_ajax_view_sandbox_source(): void
     $real_sandbox = realpath($sandbox_dir);
     if ($real_path === false || $real_sandbox === false || !str_starts_with($real_path, $real_sandbox)) {
         wp_send_json_error(['message' => __('Access denied.', 'sprout-os')]);
-        wp_die();
     }
 
+    // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Local filesystem read.
     $contents = file_get_contents($real_path);
     if ($contents === false) {
         wp_send_json_error(['message' => __('Unable to read file.', 'sprout-os')]);
-        wp_die();
     }
 
     wp_send_json_success(['content' => $contents]);
-    wp_die();
 }
 
 /**
@@ -3090,7 +3084,8 @@ function sprout_mcp_handle_sandbox_actions(): void
     }
 
     $sandbox_dir = SPROUT_MCP_SANDBOX_DIR;
-    $page_slug   = sanitize_text_field(wp_unslash($_REQUEST['page'] ?? ''));
+    // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only page slug for redirect target.
+    $page_slug   = sanitize_text_field( wp_unslash( $_GET['page'] ?? '' ) );
     if (!in_array($page_slug, ['sprout-os', 'sprout-mcp'], true)) {
         $page_slug = 'sprout-os';
     }
@@ -3107,6 +3102,11 @@ function sprout_mcp_handle_sandbox_actions(): void
     $result_file = $file;
     $is_project_action = str_ends_with($file, '/');
     $clean_name = $is_project_action ? rtrim($file, '/') : $file;
+
+    // Helper: reject symlinks inside the sandbox (matches MCP ability protections).
+    $reject_link = static function (string $path): bool {
+        return file_exists($path) && is_link($path);
+    };
 
     // Helper: recursively delete a directory.
     $rm_dir = static function (string $dir) use (&$rm_dir): void {
@@ -3135,6 +3135,7 @@ function sprout_mcp_handle_sandbox_actions(): void
 
             if ($is_proj) {
                 $dirpath = $sandbox_dir . $base;
+                if ($reject_link($dirpath) || $reject_link($dirpath . '.disabled')) { continue; }
                 if ($action === 'bulk_delete') {
                     $target = is_dir($dirpath) ? $dirpath : (is_dir($dirpath . '.disabled') ? $dirpath . '.disabled' : null);
                     if ($target) { $rm_dir($target); $count++; }
@@ -3146,8 +3147,8 @@ function sprout_mcp_handle_sandbox_actions(): void
                     rename($dirpath . '.disabled', $dirpath); $count++;
                 }
             } else {
-                if (!str_ends_with($base, '.php')) { continue; }
                 $filepath = $sandbox_dir . $base;
+                if ($reject_link($filepath) || $reject_link($filepath . '.disabled')) { continue; }
                 if ($action === 'bulk_delete') {
                     $target = file_exists($filepath) ? $filepath : (file_exists($filepath . '.disabled') ? $filepath . '.disabled' : null);
                     if ($target) { wp_delete_file($target); wp_delete_file($filepath . '.validated'); $count++; }
@@ -3179,6 +3180,11 @@ function sprout_mcp_handle_sandbox_actions(): void
         check_admin_referer('sprout_mcp_sandbox_' . $clean_name);
         $dirpath = $sandbox_dir . $clean_name;
 
+        if ($reject_link($dirpath) || $reject_link($dirpath . '.disabled')) {
+            wp_safe_redirect(add_query_arg(['page' => $page_slug, 'tab' => 'sandbox', 'sprout_result' => 'error'], admin_url('admin.php')));
+            exit;
+        }
+
         if ($action === 'disable' && is_dir($dirpath)) {
             // phpcs:ignore WordPress.WP.AlternativeFunctions.rename_rename
             rename($dirpath, $dirpath . '.disabled');
@@ -3200,10 +3206,15 @@ function sprout_mcp_handle_sandbox_actions(): void
         $result_file = $clean_name . '/';
 
     // -- Single file actions ----------------------------------------
-    } elseif ($file !== '' && str_ends_with($file, '.php')) {
+    } elseif ($file !== '') {
         $file = sanitize_file_name($file);
         check_admin_referer('sprout_mcp_sandbox_' . $file);
         $filepath = $sandbox_dir . $file;
+
+        if ($reject_link($filepath) || $reject_link($filepath . '.disabled')) {
+            wp_safe_redirect(add_query_arg(['page' => $page_slug, 'tab' => 'sandbox', 'sprout_result' => 'error'], admin_url('admin.php')));
+            exit;
+        }
 
         if ($action === 'disable' && file_exists($filepath)) {
             // phpcs:ignore WordPress.WP.AlternativeFunctions.rename_rename
@@ -3234,11 +3245,12 @@ function sprout_mcp_handle_sandbox_actions(): void
 /**
  * Extract ability names from a sandbox file by parsing wp_register_ability() calls.
  *
- * @param string $filepath Absolute path to the sandbox PHP file.
+ * @param string $filepath Absolute path to the sandbox file.
  * @return string[] List of feature names found (abilities, shortcodes, hooks, REST routes).
  */
 function sprout_mcp_extract_abilities_from_file(string $filepath): array
 {
+    // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Local filesystem read.
     $contents = @file_get_contents($filepath);
     if ($contents === false) {
         return [];
@@ -3300,6 +3312,7 @@ function sprout_mcp_render_sandbox_page_inner(): void
     $result_file = sanitize_file_name(wp_unslash($_GET['sprout_file'] ?? ''));
 
     // Check if the crash was auto-isolated (per-file) vs full safe mode.
+    // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Local filesystem read.
     $crashed_content = $is_safe_mode ? trim((string) @file_get_contents($crashed_sentinel)) : '';
     $is_full_safe_mode = $is_safe_mode && ($crashed_content === '1' || $crashed_content === '');
 
@@ -3359,31 +3372,53 @@ function sprout_mcp_render_sandbox_page_inner(): void
     };
 
     // -- Standalone files --
-    $active_files = is_dir($sandbox_dir) ? (glob($sandbox_dir . '*.php') ?: []) : [];
-    $disabled_files = is_dir($sandbox_dir) ? (glob($sandbox_dir . '*.php.disabled') ?: []) : [];
+    $active_files = [];
+    $disabled_files = [];
+    if (is_dir($sandbox_dir)) {
+        foreach ((glob($sandbox_dir . '*') ?: []) as $entry) {
+            if (is_dir($entry) || is_link($entry)) {
+                continue;
+            }
+
+            $name = basename($entry);
+            if ($name === '' || str_starts_with($name, '.') || str_ends_with($name, '.validated') || str_ends_with($name, '.bak')) {
+                continue;
+            }
+
+            if (str_ends_with($name, '.disabled')) {
+                $disabled_files[] = $entry;
+            } else {
+                $active_files[] = $entry;
+            }
+        }
+    }
 
     foreach ($active_files as $f) {
         $name = basename($f);
-        $abilities = sprout_mcp_extract_abilities_from_file($f);
+        $is_php_file = str_ends_with(strtolower($name), '.php');
+        $abilities = $is_php_file ? sprout_mcp_extract_abilities_from_file($f) : [];
         $fsize = (int) filesize($f);
-        $syntax = $check_syntax($f);
+        $syntax = $is_php_file ? $check_syntax($f) : ['validated' => false, 'syntax_error' => false];
         if ($syntax['syntax_error']) { $syntax_error_count++; }
         $files[$name] = [
             'type' => 'file', 'path' => $f, 'status' => 'enabled', 'basename' => $name,
             'abilities' => $abilities, 'size' => $fsize,
             'validated' => $syntax['validated'], 'syntax_error' => $syntax['syntax_error'],
+            'toggleable' => true,
         ];
         $total_abilities += count($abilities); $total_size += $fsize;
         if ($syntax['syntax_error']) { $disabled_count++; } else { $enabled_count++; }
     }
     foreach ($disabled_files as $f) {
         $name = str_replace('.disabled', '', basename($f));
-        $abilities = sprout_mcp_extract_abilities_from_file($f);
+        $is_php_file = str_ends_with(strtolower($name), '.php');
+        $abilities = $is_php_file ? sprout_mcp_extract_abilities_from_file($f) : [];
         $fsize = (int) filesize($f);
         $files[$name] = [
             'type' => 'file', 'path' => $f, 'status' => 'disabled', 'basename' => $name,
             'abilities' => $abilities, 'size' => $fsize,
             'validated' => false, 'syntax_error' => false,
+            'toggleable' => true,
         ];
         $total_abilities += count($abilities); $total_size += $fsize; $disabled_count++;
     }
@@ -3409,7 +3444,7 @@ function sprout_mcp_render_sandbox_page_inner(): void
             'type' => 'project', 'path' => $dir, 'entry' => $entry, 'status' => 'enabled',
             'basename' => $dir_name, 'abilities' => $abilities, 'size' => $psize,
             'file_count' => $pfiles, 'validated' => $syntax['validated'],
-            'syntax_error' => $syntax['syntax_error'],
+            'syntax_error' => $syntax['syntax_error'], 'toggleable' => true,
         ];
         $total_abilities += count($abilities); $total_size += $psize; $enabled_count++;
         $project_count++;
@@ -3425,7 +3460,7 @@ function sprout_mcp_render_sandbox_page_inner(): void
         $files[$dir_name . '/'] = [
             'type' => 'project', 'path' => $dir, 'entry' => $entry ?? '', 'status' => 'disabled',
             'basename' => $dir_name, 'abilities' => $abilities, 'size' => $psize,
-            'file_count' => $pfiles, 'validated' => false, 'syntax_error' => false,
+            'file_count' => $pfiles, 'validated' => false, 'syntax_error' => false, 'toggleable' => true,
         ];
         $total_abilities += count($abilities); $total_size += $psize; $disabled_count++;
         $project_count++;
@@ -3520,6 +3555,7 @@ function sprout_mcp_render_sandbox_page_inner(): void
                                 $action_name = $is_project ? $info['basename'] . '/' : $info['basename'];
                                 $is_enabled = ($info['status'] === 'enabled');
                                 $has_syntax_error = !empty($info['syntax_error']);
+                                $is_toggleable = !empty($info['toggleable']);
                             ?>
                                 <tr>
                                     <td style="padding-left:16px;"><input type="checkbox" class="sprout-sandbox-cb so-checkbox" name="sprout_mcp_sandbox_selected[]" value="<?php echo esc_attr($action_name); ?>" form="sprout-sandbox-bulk-form" /></td>

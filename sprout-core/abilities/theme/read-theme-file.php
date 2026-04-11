@@ -57,6 +57,7 @@ function sprout_mcp_read_theme_file_ability(array $input)
         return new WP_Error('unsupported_theme_file', __('This theme file type is not allowed for MCP access.', 'sprout-os'));
     }
 
+    // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Local filesystem read.
     $content = file_get_contents($absolute);
     if ($content === false) {
         return new WP_Error('theme_file_read_failed', __('Failed to read the requested theme file.', 'sprout-os'));

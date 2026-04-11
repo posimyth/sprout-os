@@ -102,21 +102,7 @@ final class Sprout_MCP_Sandbox_Helper
 
     public static function has_exec_php_lint_support(): bool
     {
-        if ( ! function_exists( 'exec' ) ) {
-            return false;
-        }
-
-        $disabled = array_map( 'trim', explode( ',', (string) ini_get( 'disable_functions' ) ) );
-        if ( in_array( 'exec', $disabled, true ) ) {
-            return false;
-        }
-
-        $binary = self::resolve_php_binary();
-        if ( $binary === '' || ! @is_executable( $binary ) ) {
-            return false;
-        }
-
-        return true;
+        return function_exists( 'token_get_all' );
     }
 
     public static function resolve_php_binary(): string
@@ -132,112 +118,43 @@ final class Sprout_MCP_Sandbox_Helper
     }
 
     /**
-     * Lint a PHP file with a hard 5-second timeout to prevent hanging.
-     *
-     * Uses proc_open instead of exec so we can kill the process if it
-     * takes too long (MAMP FastCGI is known to hang on exec calls).
+     * Lint a PHP file using PHP's internal tokenizer parser.
      *
      * @return array{ok: bool, message: string}
      */
     public static function lint_php_file( string $file, string $php_binary ): array
     {
-        // Prefer proc_open with timeout — exec() hangs on some MAMP setups.
-        if ( function_exists( 'proc_open' ) ) {
-            return self::lint_with_proc_open( $file, $php_binary );
+        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Local filesystem read.
+        $source = @file_get_contents( $file );
+        if ( ! is_string( $source ) ) {
+            return [
+                'ok'      => false,
+                'message' => 'Unable to read file for syntax validation.',
+            ];
         }
 
-        // Fallback to exec (no timeout protection).
-        $output    = [];
-        $exit_code = 0;
-
-        @exec(
-            sprintf( '%s -l %s 2>&1', escapeshellarg( $php_binary ), escapeshellarg( $file ) ),
-            $output,
-            $exit_code
-        );
-
-        return [
-            'ok'      => $exit_code === 0,
-            'message' => implode( "\n", $output ),
-        ];
-    }
-
-    /**
-     * Lint PHP using proc_open with a 5-second timeout.
-     *
-     * @return array{ok: bool, message: string}
-     */
-    private static function lint_with_proc_open( string $file, string $php_binary ): array
-    {
-        $cmd = sprintf( '%s -l %s 2>&1', escapeshellarg( $php_binary ), escapeshellarg( $file ) );
-
-        $descriptors = [
-            0 => [ 'pipe', 'r' ],
-            1 => [ 'pipe', 'w' ],
-            2 => [ 'pipe', 'w' ],
-        ];
-
-        // phpcs:ignore Generic.PHP.ForbiddenFunctions.Found
-        $proc = @proc_open( $cmd, $descriptors, $pipes );
-        if ( ! is_resource( $proc ) ) {
-            // Cannot lint — allow the file to load.
-            return [ 'ok' => true, 'message' => '' ];
+        if ( ! str_contains( $source, '<?php' ) && ! str_contains( $source, '<?=' ) ) {
+            $source = "<?php\n" . $source;
         }
 
-        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose
-        fclose( $pipes[0] );
-
-        // Non-blocking read with 5 second deadline.
-        stream_set_blocking( $pipes[1], false );
-        stream_set_blocking( $pipes[2], false );
-
-        $deadline = microtime( true ) + 5.0;
-        $stdout   = '';
-
-        while ( microtime( true ) < $deadline ) {
-            $status = proc_get_status( $proc );
-            if ( ! $status['running'] ) {
-                break;
-            }
-            // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fread
-            $chunk = fread( $pipes[1], 8192 );
-            if ( is_string( $chunk ) ) {
-                $stdout .= $chunk;
-            }
-            usleep( 50_000 ); // 50ms poll
+        try {
+            token_get_all( $source, TOKEN_PARSE );
+            return [
+                'ok'      => true,
+                'message' => '',
+            ];
+        } catch ( \ParseError $error ) {
+            return [
+                'ok'      => false,
+                'message' => $error->getMessage(),
+            ];
         }
-
-        // Read any remaining output.
-        $chunk = stream_get_contents( $pipes[1] );
-        if ( is_string( $chunk ) ) {
-            $stdout .= $chunk;
-        }
-
-        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose
-        fclose( $pipes[1] );
-        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose
-        fclose( $pipes[2] );
-
-        $status = proc_get_status( $proc );
-        if ( $status['running'] ) {
-            // Process timed out — kill it and skip lint.
-            @proc_terminate( $proc, 9 );
-            proc_close( $proc );
-            return [ 'ok' => true, 'message' => 'Lint timed out — file allowed.' ];
-        }
-
-        $exit_code = $status['exitcode'];
-        proc_close( $proc );
-
-        return [
-            'ok'      => $exit_code === 0,
-            'message' => trim( $stdout ),
-        ];
     }
 
     public static function create_validation_cache(string $file): void
     {
         $signature = self::build_validation_signature($file);
+        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Local filesystem write.
         @file_put_contents($file . '.validated', $signature, LOCK_EX);
     }
 
@@ -248,6 +165,7 @@ final class Sprout_MCP_Sandbox_Helper
             return false;
         }
 
+        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Local filesystem read.
         $stored_signature = (string) @file_get_contents($sidecar);
         if ($stored_signature === '') {
             wp_delete_file($sidecar);
@@ -302,6 +220,7 @@ final class Sprout_MCP_Sandbox_Helper
             return ['label' => '', 'safe_mode' => false];
         }
 
+        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Local filesystem read.
         $crashed_content = trim((string) @file_get_contents($sentinel_crashed));
         if (
             $crashed_content === ''
@@ -357,6 +276,7 @@ final class Sprout_MCP_Sandbox_Helper
      */
     public static function detect_symbol_conflicts(string $file): string
     {
+        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Local filesystem read.
         $source = @file_get_contents($file);
         if ($source === false) {
             return '';
@@ -375,6 +295,7 @@ final class Sprout_MCP_Sandbox_Helper
 
                 $full_path = $dir . '/' . $resolved;
                 if (file_exists($full_path)) {
+                    // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Local filesystem read.
                     $inc_source = @file_get_contents($full_path);
                     if ($inc_source !== false) {
                         $all_sources[] = $inc_source;

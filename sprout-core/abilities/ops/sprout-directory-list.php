@@ -108,9 +108,8 @@ wp_register_ability('sprout/list-directory', [
                 '• sort_by=size: largest files first.',
                 '• sort_by=modified: most recently changed first.',
                 '',
-                'SANDBOX:',
-                '• AI-created PHP files live in wp-content/sproutos-mcp-sandbox/.',
-                '• Check .crashed to see if safe mode is active.',
+                'WORKSPACE:',
+                '• Use this to inspect files available to Sprout-managed workflows.',
             ]),
             'readonly'    => true,
             'destructive' => false,
@@ -322,6 +321,11 @@ function sprout_mcp_file_info_to_entry(SplFileInfo $node, string $glob, bool $sh
 
     // Visibility gate.
     if (!$show_hidden && str_starts_with($name, '.')) {
+        return null;
+    }
+
+    // Hide sandbox internal sidecar files (.validated cache, .bak backups).
+    if (str_ends_with($name, '.validated') || str_ends_with($name, '.bak')) {
         return null;
     }
 

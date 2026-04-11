@@ -182,6 +182,7 @@ final class sprout_mcp_Load
      */
     private function get_jetpack_autoloader_class(string $autoload_packages_file): ?string
     {
+        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Local filesystem read.
         $contents = file_get_contents($autoload_packages_file);
         if ($contents === false) {
             return null;

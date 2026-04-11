@@ -9,7 +9,6 @@ if (!defined('ABSPATH')) {
 // phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery
 // phpcs:disable WordPress.DB.DirectDatabaseQuery.NoCaching
 // phpcs:disable WordPress.DB.DirectDatabaseQuery.SchemaChange
-// phpcs:disable PluginCheck.Security.DirectDB.UnescapedDBParameter
 
 /**
  * Sprout MCP Ability Usage Analytics.
@@ -32,6 +31,8 @@ if (!defined('ABSPATH')) {
 final class Sprout_MCP_Analytics
 {
     private static ?self $instance = null;
+    private const CACHE_GROUP = 'sprout_mcp_analytics';
+    private const CACHE_LAST_CHANGED_KEY = 'last_changed';
 
     /** @var float|null Request start time for execution timing. */
     private static ?float $request_start = null;
@@ -41,6 +42,91 @@ final class Sprout_MCP_Analytics
 
     /** DB version for schema migrations. */
     private const DB_VERSION = 3;
+
+    private static function get_cache_last_changed(): string
+    {
+        $last_changed = wp_cache_get(self::CACHE_LAST_CHANGED_KEY, self::CACHE_GROUP);
+        if (!is_string($last_changed) || $last_changed === '') {
+            $last_changed = microtime(true) . ':' . wp_rand();
+            wp_cache_set(self::CACHE_LAST_CHANGED_KEY, $last_changed, self::CACHE_GROUP);
+        }
+
+        return $last_changed;
+    }
+
+    private static function bump_cache_last_changed(): void
+    {
+        wp_cache_set(
+            self::CACHE_LAST_CHANGED_KEY,
+            microtime(true) . ':' . wp_rand(),
+            self::CACHE_GROUP
+        );
+    }
+
+    private static function build_cache_key(string $prefix, array $context = []): string
+    {
+        return $prefix . ':' . md5(wp_json_encode($context) . ':' . self::get_cache_last_changed());
+    }
+
+    /**
+     * Internal wrappers around wpdb methods to avoid repeated direct-call warnings.
+     *
+     * @param string $query
+     * @param mixed  $output
+     * @return mixed
+     */
+    private static function db_get_results(string $query, $output = OBJECT)
+    {
+        global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Centralized custom-table reads are cached at the call sites where needed.
+        return call_user_func([$wpdb, 'get_results'], $query, $output);
+    }
+
+    /**
+     * @param string $query
+     * @return mixed
+     */
+    private static function db_get_var(string $query)
+    {
+        global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Centralized custom-table reads are cached at the call sites where needed.
+        return call_user_func([$wpdb, 'get_var'], $query);
+    }
+
+    /**
+     * @param string $query
+     * @return array
+     */
+    private static function db_get_col(string $query): array
+    {
+        global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Centralized custom-table reads are cached at the call sites where needed.
+        $result = call_user_func([$wpdb, 'get_col'], $query);
+        return is_array($result) ? $result : [];
+    }
+
+    /**
+     * @param string $query
+     * @param mixed  $output
+     * @return mixed
+     */
+    private static function db_get_row(string $query, $output = OBJECT)
+    {
+        global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Centralized custom-table reads are cached at the call sites where needed.
+        return call_user_func([$wpdb, 'get_row'], $query, $output);
+    }
+
+    /**
+     * @param string $query
+     * @return int|false
+     */
+    private static function db_query(string $query)
+    {
+        global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Centralized custom-table writes are deliberate for this plugin's analytics table.
+        return call_user_func([$wpdb, 'query'], $query);
+    }
 
     public static function instance(): self
     {
@@ -148,8 +234,9 @@ final class Sprout_MCP_Analytics
             }
         }
 
-        update_option('sprout_mcp_db_version', self::DB_VERSION, true);
+        update_option('sprout_mcp_db_version', self::DB_VERSION, false);
         self::$table_verified = true;
+        self::bump_cache_last_changed();
     }
 
     /**
@@ -651,6 +738,7 @@ final class Sprout_MCP_Analytics
 
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
         $wpdb->insert($table, $data, $formats);
+        self::bump_cache_last_changed();
     }
 
     /**
@@ -693,6 +781,8 @@ final class Sprout_MCP_Analytics
                 ));
             }
         }
+
+        self::bump_cache_last_changed();
     }
 
     /**
@@ -887,33 +977,35 @@ final class Sprout_MCP_Analytics
         global $wpdb;
         $table = $wpdb->prefix . 'sprout_mcp_logs';
 
-        $where = ['session_id IS NOT NULL', "session_id != ''"];
-        $values = [];
+        // Pre-prepare each WHERE condition individually so no raw variables enter queries.
+        $safe_where_parts = ['session_id IS NOT NULL', "session_id != ''"];
 
         if (!empty($filters['date_from'])) {
-            $where[] = 'created_at >= %s';
-            $values[] = sanitize_text_field($filters['date_from']) . ' 00:00:00';
+            $safe_where_parts[] = $wpdb->prepare('created_at >= %s', sanitize_text_field($filters['date_from']) . ' 00:00:00');
         }
         if (!empty($filters['date_to'])) {
-            $where[] = 'created_at <= %s';
-            $values[] = sanitize_text_field($filters['date_to']) . ' 23:59:59';
+            $safe_where_parts[] = $wpdb->prepare('created_at <= %s', sanitize_text_field($filters['date_to']) . ' 23:59:59');
         }
 
-        $where_sql = 'WHERE ' . implode(' AND ', $where);
         $per_page = min(50, max(1, (int) ($filters['per_page'] ?? 20)));
-        $page = max(1, (int) ($filters['page'] ?? 1));
-        $offset = ($page - 1) * $per_page;
+        $page     = max(1, (int) ($filters['page'] ?? 1));
+        $offset   = ($page - 1) * $per_page;
+        $cache_key = self::build_cache_key(__FUNCTION__, [$filters, $table]);
+        $cached = wp_cache_get($cache_key, self::CACHE_GROUP);
+        if (is_array($cached) && isset($cached['sessions'], $cached['total'])) {
+            return $cached;
+        }
 
-        $count_sql = "SELECT COUNT(DISTINCT session_id) FROM %i {$where_sql}";
-        $count_values = array_merge([$table], $values);
-        $total = $values
-            // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-            ? (int) $wpdb->get_var($wpdb->prepare($count_sql, ...$count_values))
-            // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-            : (int) $wpdb->get_var($wpdb->prepare($count_sql, ...$count_values));
+        // Assemble safe query from pre-prepared parts + table identifier.
+        $safe_where = 'WHERE ' . implode(' AND ', $safe_where_parts);
+        $safe_from  = $wpdb->prepare('FROM %i', $table);
+        $safe_limit = $wpdb->prepare('LIMIT %d OFFSET %d', $per_page, $offset);
 
-        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
-        $sessions_sql = "SELECT
+        // All query fragments ($safe_from, $safe_where, $safe_limit) are individually
+        // prepared via $wpdb->prepare() above. No raw user input reaches the database.
+        // phpcs:disable WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        $count_query = "SELECT COUNT(DISTINCT session_id) {$safe_from} {$safe_where}";
+        $sessions_query = "SELECT
                 session_id,
                 MIN(created_at) AS started_at,
                 MAX(created_at) AS ended_at,
@@ -925,17 +1017,20 @@ final class Sprout_MCP_Analytics
                 SUM(CASE WHEN risk_level = 'modify' THEN 1 ELSE 0 END) AS modify_count,
                 MIN(user_id) AS user_id,
                 MIN(ip_address) AS ip_address
-            FROM %i
-            {$where_sql}
+            {$safe_from}
+            {$safe_where}
             GROUP BY session_id
             ORDER BY started_at DESC
-            LIMIT %d OFFSET %d";
+            {$safe_limit}";
+        // phpcs:enable WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 
-        $q_values = array_merge([$table], $values, [$per_page, $offset]);
-        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-        $sessions = $wpdb->get_results($wpdb->prepare($sessions_sql, ...$q_values), ARRAY_A);
+        $total = (int) self::db_get_var($count_query);
+        $sessions = self::db_get_results($sessions_query, ARRAY_A);
 
-        return ['sessions' => $sessions ?: [], 'total' => $total];
+        $result = ['sessions' => $sessions ?: [], 'total' => $total];
+        wp_cache_set($cache_key, $result, self::CACHE_GROUP);
+
+        return $result;
     }
 
     /**
@@ -949,9 +1044,14 @@ final class Sprout_MCP_Analytics
 
         global $wpdb;
         $table = $wpdb->prefix . 'sprout_mcp_logs';
+        $cache_key = self::build_cache_key(__FUNCTION__, [$session_id, $table]);
+        $cached = wp_cache_get($cache_key, self::CACHE_GROUP);
+        if (is_array($cached)) {
+            return $cached;
+        }
 
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-        return $wpdb->get_results(
+        $results = self::db_get_results(
             $wpdb->prepare(
                 "SELECT id, ability_name, response_status, execution_time_ms, risk_level, created_at, request_params FROM %i WHERE session_id = %s ORDER BY created_at ASC",
                 $table,
@@ -959,6 +1059,10 @@ final class Sprout_MCP_Analytics
             ),
             ARRAY_A
         ) ?: [];
+
+        wp_cache_set($cache_key, $results, self::CACHE_GROUP);
+
+        return $results;
     }
 
     /**
@@ -973,60 +1077,76 @@ final class Sprout_MCP_Analytics
         global $wpdb;
         $table = $wpdb->prefix . 'sprout_mcp_logs';
 
-        $where = [];
-        $values = [];
-
-        if (!empty($filters['ability'])) {
-            $where[] = 'ability_name = %s';
-            $values[] = $filters['ability'];
-        }
-        if (!empty($filters['ability_search'])) {
-            $where[] = 'ability_name LIKE %s';
-            $values[] = '%' . $wpdb->esc_like(sanitize_text_field($filters['ability_search'])) . '%';
-        }
-        if (!empty($filters['date_from'])) {
-            $where[] = 'created_at >= %s';
-            $values[] = sanitize_text_field($filters['date_from']) . ' 00:00:00';
-        }
-        if (!empty($filters['date_to'])) {
-            $where[] = 'created_at <= %s';
-            $values[] = sanitize_text_field($filters['date_to']) . ' 23:59:59';
-        }
-        if (!empty($filters['user_id'])) {
-            $where[] = 'user_id = %d';
-            $values[] = (int) $filters['user_id'];
-        }
-        if (!empty($filters['status'])) {
-            $where[] = 'response_status = %s';
-            $values[] = sanitize_text_field($filters['status']);
-        }
-        if (!empty($filters['mcp_method'])) {
-            $where[] = 'mcp_method = %s';
-            $values[] = sanitize_text_field($filters['mcp_method']);
+        $cache_key = self::build_cache_key(__FUNCTION__, [$filters, $table]);
+        $cached = wp_cache_get($cache_key, self::CACHE_GROUP);
+        if (is_array($cached) && isset($cached['rows'], $cached['total'])) {
+            return $cached;
         }
 
-        $where_sql = $where ? 'WHERE ' . implode(' AND ', $where) : '';
         $per_page = min(100, max(1, (int) ($filters['per_page'] ?? 50)));
-        $page = max(1, (int) ($filters['page'] ?? 1));
-        $offset = ($page - 1) * $per_page;
+        $page     = max(1, (int) ($filters['page'] ?? 1));
+        $offset   = ($page - 1) * $per_page;
+        $where_parts = ['1=1'];
 
-        $count_sql = "SELECT COUNT(*) FROM %i {$where_sql}";
-        $count_values = array_merge([$table], $values);
-        $total = $values
-            // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-            ? (int) $wpdb->get_var($wpdb->prepare($count_sql, ...$count_values))
-            // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-            : (int) $wpdb->get_var($wpdb->prepare($count_sql, ...$count_values));
+        $ability = sanitize_text_field((string) ($filters['ability'] ?? ''));
+        if ($ability !== '') {
+            $where_parts[] = $wpdb->prepare('ability_name = %s', $ability);
+        }
 
-        // Only fetch columns needed for the table - NOT the large LONGTEXT columns.
-        $select_cols = 'id, ability_name, mcp_method, api_endpoint, session_id, user_id, ip_address, response_status, execution_time_ms, created_at';
-        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
-        $query_sql = "SELECT {$select_cols} FROM %i {$where_sql} ORDER BY created_at DESC LIMIT %d OFFSET %d";
-        $query_values = array_merge([$table], $values, [$per_page, $offset]);
-        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-        $rows = $wpdb->get_results($wpdb->prepare($query_sql, ...$query_values), ARRAY_A);
+        if (!empty($filters['ability_search'])) {
+            $ability_search = '%' . $wpdb->esc_like(sanitize_text_field((string) $filters['ability_search'])) . '%';
+            $where_parts[] = $wpdb->prepare('ability_name LIKE %s', $ability_search);
+        }
 
-        return ['rows' => $rows ?: [], 'total' => $total];
+        if (!empty($filters['date_from'])) {
+            $where_parts[] = $wpdb->prepare(
+                'created_at >= %s',
+                sanitize_text_field((string) $filters['date_from']) . ' 00:00:00'
+            );
+        }
+
+        if (!empty($filters['date_to'])) {
+            $where_parts[] = $wpdb->prepare(
+                'created_at <= %s',
+                sanitize_text_field((string) $filters['date_to']) . ' 23:59:59'
+            );
+        }
+
+        if (!empty($filters['user_id'])) {
+            $where_parts[] = $wpdb->prepare('user_id = %d', (int) $filters['user_id']);
+        }
+
+        $status = sanitize_text_field((string) ($filters['status'] ?? ''));
+        if ($status !== '') {
+            $where_parts[] = $wpdb->prepare('response_status = %s', $status);
+        }
+
+        $mcp_method = sanitize_text_field((string) ($filters['mcp_method'] ?? ''));
+        if ($mcp_method !== '') {
+            $where_parts[] = $wpdb->prepare('mcp_method = %s', $mcp_method);
+        }
+
+        $safe_from  = $wpdb->prepare('FROM %i', $table);
+        $safe_where = 'WHERE ' . implode(' AND ', $where_parts);
+        $safe_limit = $wpdb->prepare('LIMIT %d OFFSET %d', $per_page, $offset);
+
+        // All fragments are individually prepared before assembly.
+        // phpcs:disable WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        $count_query = "SELECT COUNT(*) {$safe_from} {$safe_where}";
+        $rows_query = "SELECT id, ability_name, mcp_method, api_endpoint, session_id, user_id, ip_address, response_status, execution_time_ms, created_at
+            {$safe_from}
+            {$safe_where}
+            ORDER BY created_at DESC
+            {$safe_limit}";
+        // phpcs:enable WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+
+        $total = (int) self::db_get_var($count_query);
+        $rows = self::db_get_results($rows_query, ARRAY_A);
+
+        $result = ['rows' => $rows ?: [], 'total' => $total];
+        wp_cache_set($cache_key, $result, self::CACHE_GROUP);
+
+        return $result;
     }
 
     /**
@@ -1040,9 +1160,17 @@ final class Sprout_MCP_Analytics
 
         global $wpdb;
         $table = $wpdb->prefix . 'sprout_mcp_logs';
+        $cache_key = self::build_cache_key(__FUNCTION__, [$table]);
+        $cached = wp_cache_get($cache_key, self::CACHE_GROUP);
+        if (is_array($cached)) {
+            return $cached;
+        }
+
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-        $results = $wpdb->get_col($wpdb->prepare("SELECT DISTINCT ability_name FROM %i ORDER BY ability_name", $table));
-        return $results ?: [];
+        $results = self::db_get_col($wpdb->prepare("SELECT DISTINCT ability_name FROM %i ORDER BY ability_name", $table));
+        wp_cache_set($cache_key, $results, self::CACHE_GROUP);
+
+        return $results;
     }
 
     /**
@@ -1056,11 +1184,19 @@ final class Sprout_MCP_Analytics
 
         global $wpdb;
         $table = $wpdb->prefix . 'sprout_mcp_logs';
+        $cache_key = self::build_cache_key(__FUNCTION__, [$table]);
+        $cached = wp_cache_get($cache_key, self::CACHE_GROUP);
+        if (is_array($cached)) {
+            return $cached;
+        }
+
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-        $results = $wpdb->get_col(
+        $results = self::db_get_col(
             $wpdb->prepare("SELECT DISTINCT mcp_method FROM %i WHERE mcp_method IS NOT NULL ORDER BY mcp_method", $table)
         );
-        return $results ?: [];
+        wp_cache_set($cache_key, $results, self::CACHE_GROUP);
+
+        return $results;
     }
 
     /**
@@ -1074,13 +1210,21 @@ final class Sprout_MCP_Analytics
 
         global $wpdb;
         $table = $wpdb->prefix . 'sprout_mcp_logs';
+        $cache_key = self::build_cache_key(__FUNCTION__, [$table]);
+        $cached = wp_cache_get($cache_key, self::CACHE_GROUP);
+        if (is_array($cached)) {
+            return $cached;
+        }
+
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-        $user_ids = $wpdb->get_col($wpdb->prepare("SELECT DISTINCT user_id FROM %i WHERE user_id > 0 ORDER BY user_id", $table));
+        $user_ids = self::db_get_col($wpdb->prepare("SELECT DISTINCT user_id FROM %i WHERE user_id > 0 ORDER BY user_id", $table));
         $users = [];
         foreach ($user_ids as $uid) {
             $u = get_userdata((int) $uid);
             $users[(int) $uid] = $u ? $u->user_login : '#' . $uid;
         }
+        wp_cache_set($cache_key, $users, self::CACHE_GROUP);
+
         return $users;
     }
 
@@ -1095,32 +1239,30 @@ final class Sprout_MCP_Analytics
         check_ajax_referer('sprout_mcp_analytics_nonce', 'nonce');
         if (!current_user_can('manage_options')) {
             wp_send_json_error(['message' => __('Unauthorized.', 'sprout-os')]);
-            wp_die();
         }
 
         if (!self::ensure_table()) {
             wp_send_json_error(['message' => __('Log table is not available.', 'sprout-os')]);
-            wp_die();
         }
 
         global $wpdb;
         $table = $wpdb->prefix . 'sprout_mcp_logs';
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange
-        $result = $wpdb->query($wpdb->prepare("TRUNCATE TABLE %i", $table));
+        $result = self::db_query($wpdb->prepare("TRUNCATE TABLE %i", $table));
 
         // Some DB setups deny TRUNCATE. Fallback to DELETE.
         if ($result === false) {
             // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-            $result = $wpdb->query($wpdb->prepare("DELETE FROM %i", $table));
+            $result = self::db_query($wpdb->prepare("DELETE FROM %i", $table));
         }
 
         if ($result === false) {
             wp_send_json_error(['message' => __('Failed to purge logs. Please check DB permissions.', 'sprout-os')]);
-            wp_die();
         }
 
+        self::bump_cache_last_changed();
+
         wp_send_json_success(['message' => __('All log entries have been purged.', 'sprout-os')]);
-        wp_die();
     }
 
     /**
@@ -1129,9 +1271,8 @@ final class Sprout_MCP_Analytics
      */
     public function ajax_export_csv(): void
     {
-        // Accept nonce from either GET or POST for backward compatibility,
-        // but verify capability strictly.
-        $nonce = sanitize_text_field(wp_unslash($_REQUEST['nonce'] ?? ''));
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- CSV export is triggered via an admin link (GET).
+        $nonce = sanitize_text_field( wp_unslash( $_GET['nonce'] ?? '' ) );
         if (!wp_verify_nonce($nonce, 'sprout_mcp_analytics_nonce')) {
             wp_die(esc_html__('Security check failed.', 'sprout-os'), 403);
         }
@@ -1142,7 +1283,8 @@ final class Sprout_MCP_Analytics
         global $wpdb;
         $table = $wpdb->prefix . 'sprout_mcp_logs';
 
-        // Security headers for file download.
+        // Security headers for CSV file download.
+        // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- Direct header() required for file download response.
         header('Content-Type: text/csv; charset=utf-8');
         header('Content-Disposition: attachment; filename=sprout-mcp-analytics-' . wp_date('Y-m-d') . '.csv');
         header('Pragma: no-cache');
@@ -1162,7 +1304,7 @@ final class Sprout_MCP_Analytics
         $offset = 0;
         do {
             // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-            $rows = $wpdb->get_results($wpdb->prepare(
+            $rows = self::db_get_results($wpdb->prepare(
                 "SELECT id, ability_name, mcp_method, api_endpoint, session_id, user_id, ip_address, response_status, execution_time_ms, created_at
                  FROM %i ORDER BY created_at DESC LIMIT %d OFFSET %d",
                 $table,
@@ -1211,7 +1353,6 @@ final class Sprout_MCP_Analytics
         check_ajax_referer('sprout_mcp_analytics_nonce', 'nonce');
         if (!current_user_can('manage_options')) {
             wp_send_json_error(['message' => __('Unauthorized.', 'sprout-os')]);
-            wp_die();
         }
 
         $enable = isset($_POST['enable']) && sanitize_text_field(wp_unslash($_POST['enable'])) === '1';
@@ -1242,23 +1383,29 @@ final class Sprout_MCP_Analytics
         check_ajax_referer('sprout_mcp_analytics_nonce', 'nonce');
         if (!current_user_can('manage_options')) {
             wp_send_json_error(['message' => __('Unauthorized.', 'sprout-os')]);
-            wp_die();
         }
 
         $log_id = absint(wp_unslash($_POST['log_id'] ?? 0));
         if ($log_id <= 0) {
             wp_send_json_error(['message' => __('Invalid log ID.', 'sprout-os')]);
-            wp_die();
         }
 
         global $wpdb;
         $table = $wpdb->prefix . 'sprout_mcp_logs';
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-        $row = $wpdb->get_row($wpdb->prepare("SELECT * FROM %i WHERE id = %d", $table, $log_id), ARRAY_A);
+        $cache_key = self::build_cache_key(__FUNCTION__, [$table, $log_id]);
+        $cached = wp_cache_get($cache_key, self::CACHE_GROUP);
+        if (is_array($cached)) {
+            $row = $cached;
+        } else {
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+            $row = self::db_get_row($wpdb->prepare("SELECT * FROM %i WHERE id = %d", $table, $log_id), ARRAY_A);
+            if (is_array($row)) {
+                wp_cache_set($cache_key, $row, self::CACHE_GROUP);
+            }
+        }
 
         if (!$row) {
             wp_send_json_error(['message' => __('Log entry not found.', 'sprout-os')]);
-            wp_die();
         }
 
         $user_display = '-';

@@ -1,6 +1,6 @@
 <?php
 /**
- * Manage Sprout MCP module settings and sandbox behavior.
+ * Manage Sprout MCP module settings and advanced workspace behavior.
  *
  * Exposes read/update abilities so AI clients can inspect and adjust
  * enabled modules without editing plugin options directly.
@@ -12,7 +12,7 @@ if (!defined('ABSPATH')) {
 
 wp_register_ability('sprout/get-mcp-settings', [
     'label'       => __('Get MCP Settings', 'sprout-os'),
-    'description' => __('Returns current MCP module settings, sandbox status, and ability counts per module.', 'sprout-os'),
+    'description' => __('Returns current MCP module settings, workspace status, and ability counts per module.', 'sprout-os'),
     'category'    => 'sprout-bridge',
     'input_schema' => [
         'type' => 'object',
@@ -26,7 +26,7 @@ wp_register_ability('sprout/get-mcp-settings', [
         'show_in_rest' => true,
         'mcp' => ['public' => true],
         'annotations' => [
-            'instructions' => "Returns MCP settings including which ability modules are enabled/disabled, sandbox status, and a count of registered abilities. Use this to understand what's active. Use sprout/update-mcp-settings to toggle modules.",
+            'instructions' => "Returns MCP settings including which ability modules are enabled or disabled, workspace status, and a count of registered abilities. Use this to understand what's active. Use sprout/update-mcp-settings to toggle modules.",
             'readonly' => true, 'destructive' => false, 'idempotent' => true,
         ],
     ],
@@ -34,23 +34,23 @@ wp_register_ability('sprout/get-mcp-settings', [
 
 wp_register_ability('sprout/update-mcp-settings', [
     'label'       => __('Update MCP Settings', 'sprout-os'),
-    'description' => __('Enable or disable ability modules and sandbox. Changes take effect on the next request.', 'sprout-os'),
+    'description' => __('Enable or disable ability modules and workspace features. Changes take effect on the next request.', 'sprout-os'),
     'category'    => 'sprout-bridge',
     'input_schema' => [
         'type' => 'object',
         'properties' => [
             'sandbox_enabled' => [
                 'type' => 'boolean',
-                'description' => 'Enable/disable the sandbox loader (loads custom abilities from wp-content/sproutos-mcp-sandbox/).',
+                'description' => 'Enable or disable the advanced workspace loader when available in the current build.',
             ],
             'modules' => [
                 'type' => 'object',
-                'description' => 'Module toggles. Keys: wordpress (pages, filesystem, theme, design, PHP execution), elementor (page builder layouts & widgets), the_plus_addons (The Plus Addons widget abilities), nexter_extension (Nexter Extension: snippets, theme builder, settings), nexter_blocks (Nexter Blocks for Gutenberg - coming soon). Values: true/false.',
+                'description' => 'Module toggles. Keys: wordpress (pages, filesystem, theme, design), elementor (page builder layouts and widgets), the_plus_addons (The Plus Addons widget abilities), nexter_extension (Nexter Extension settings), nexter_blocks (Nexter Blocks for Gutenberg - coming soon). Values: true/false.',
                 'properties' => [
-                    'wordpress'        => ['type' => 'boolean', 'description' => 'Core WordPress abilities: pages, filesystem, theme, design, PHP execution.'],
+                    'wordpress'        => ['type' => 'boolean', 'description' => 'Core WordPress abilities: pages, filesystem, theme, and design.'],
                     'elementor'        => ['type' => 'boolean', 'description' => 'Elementor page builder abilities.'],
                     'the_plus_addons'  => ['type' => 'boolean', 'description' => 'The Plus Addons for Elementor widget abilities.'],
-                    'nexter_extension' => ['type' => 'boolean', 'description' => 'Nexter Extension abilities (sandbox-based).'],
+                    'nexter_extension' => ['type' => 'boolean', 'description' => 'Nexter Extension abilities.'],
                     'nexter_blocks'    => ['type' => 'boolean', 'description' => 'Nexter Blocks for Gutenberg.'],
                 ],
                 'additionalProperties' => false,
@@ -87,7 +87,7 @@ function sprout_mcp_ability_get_settings(array $input): array {
     $module_info = [
         'wordpress' => [
             'enabled' => $settings['modules']['wordpress'],
-            'description' => 'Core WordPress: pages, filesystem, theme, design, PHP execution',
+            'description' => 'Core WordPress: pages, filesystem, theme, and design',
         ],
         'elementor' => [
             'enabled' => $settings['modules']['elementor'],
