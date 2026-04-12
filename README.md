@@ -23,7 +23,7 @@
   <img src="https://img.shields.io/badge/PHP-8.0%2B-777BB4?logo=php" alt="PHP 8.0+">
   <img src="https://img.shields.io/badge/MCP-2025--06--18-green" alt="MCP Spec">
   <img src="https://img.shields.io/badge/License-GPLv2-orange" alt="License GPLv2">
-  <img src="https://img.shields.io/badge/Version-1.1.0-brightgreen" alt="Version 1.1.0">
+  <img src="https://img.shields.io/badge/Version-0.0.1-brightgreen" alt="Version 0.0.1">
 </p>
 
 ---
@@ -33,6 +33,8 @@
 SproutOS is a WordPress plugin that turns your entire WordPress site into an MCP (Model Context Protocol) server. It lets AI agents like Claude, ChatGPT, Cursor, and others **read files, write code, edit themes, create pages, execute PHP, and manage your site** - all through a standardized protocol with granular admin controls.
 
 Built on the official [WordPress MCP Adapter](https://make.wordpress.org/ai/2025/07/17/ai-building-blocks) and the [WordPress Abilities API](https://github.com/WordPress/abilities-api), SproutOS is the most comprehensive WordPress MCP implementation available.
+
+**[Website](https://sproutos.ai)** &bull; **[Documentation](https://sproutos.documentationai.com/wordpress-plugin)**
 
 > **"With great power comes great responsibility."** SproutOS gives AI agents deep access to your WordPress site. Every tool can be individually enabled or disabled. Use it wisely.
 
@@ -585,6 +587,7 @@ Your site will recover automatically on the next page load.
 <details>
 <summary><strong>Where can I get help or report issues?</strong></summary>
 
+- **Documentation**: [sproutos.documentationai.com/wordpress-plugin](https://sproutos.documentationai.com/wordpress-plugin)
 - **GitHub Issues**: [github.com/posimyth/sprout-os/issues](https://github.com/posimyth/sprout-os/issues) for bug reports and feature requests
 - **Support**: [store.posimyth.com/helpdesk/](https://store.posimyth.com/helpdesk/) for direct support from the POSIMYTH team
 - **Security issues**: See [SECURITY.md](SECURITY.md) for responsible disclosure

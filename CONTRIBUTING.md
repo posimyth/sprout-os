@@ -181,6 +181,7 @@ Before submitting a PR that adds or modifies MCP tools:
 
 ## Need Help?
 
+- Read the [Documentation](https://sproutos.documentationai.com/wordpress-plugin)
 - Open a [GitHub Discussion](https://github.com/posimyth/sprout-os/discussions) for questions
 - Contact us at [store.posimyth.com/helpdesk/](https://store.posimyth.com/helpdesk/)
 

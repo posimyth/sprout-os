@@ -1,9 +1,9 @@
 <?php
 /**
  * Plugin Name: SproutOS
- * Plugin URI: https://posimyth.com/sproutos
+ * Plugin URI: https://sproutos.ai
  * Description: AI-powered WordPress workflow tools with admin controls, analytics, notifications, and safer advanced site management.
- * Version: 1.1.0
+ * Version: 0.0.1
  * Requires at least: 6.5
  * Requires PHP: 8.0
  * Author: Posimyth
@@ -21,7 +21,7 @@ if (!defined('SPROUT_MCP_WPORG_SAFE_BUILD')) {
     define('SPROUT_MCP_WPORG_SAFE_BUILD', true);
 }
 
-define('SPROUT_MCP_VERSION', '1.1.0');
+define('SPROUT_MCP_VERSION', '0.0.1');
 define('SPROUT_MCP_PLUGIN_FILE', __FILE__);
 define('SPROUT_MCP_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('SPROUT_MCP_PLUGIN_URL', plugin_dir_url(__FILE__));

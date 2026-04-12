@@ -4,7 +4,7 @@ Tags: ai, automation, mcp, sandbox, assistant
 Requires at least: 6.5
 Tested up to: 6.9
 Requires PHP: 8.0
-Stable tag: 1.1.0
+Stable tag: 0.0.1
 
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -98,7 +98,7 @@ SproutOS is designed with admin controls and safety-focused settings, but you sh
 
 == Changelog ==
 
-= 1.1.0 =
+= 0.0.1 =
 
 * Initial public release.
 * Added WordPress admin management screens and workflow controls.
@@ -108,6 +108,6 @@ SproutOS is designed with admin controls and safety-focused settings, but you sh
 
 == Upgrade Notice ==
 
-= 1.1.0 =
+= 0.0.1 =
 
 Initial release of SproutOS with AI-powered workflow tools, admin controls, analytics, notifications, and safety-focused settings.
