@@ -85,7 +85,7 @@ function sprout_mcp_is_enabled(bool $flush = false): bool
         return $cached;
     }
 
-    $value = get_option('sprout_mcp_ai_abilities_enabled', false);
+    $value = get_option('sprout_mcp_ai_abilities_enabled', true);
     $cached = ($value === '1' || $value === true);
 
     return $cached;
@@ -113,7 +113,7 @@ function sprout_mcp_get_settings(bool $flush = false): array
     $defaults = [
         'safe_mode_enabled' => false,
         'safe_mode_previous_disabled' => [],
-        'sandbox_enabled' => !$wporg_safe_build,
+        'sandbox_enabled' => true,
         'disabled_abilities' => [],
         'modules' => [
             'wordpress'        => true,
@@ -125,16 +125,16 @@ function sprout_mcp_get_settings(bool $flush = false): array
         ],
         'analytics_enabled' => !$wporg_safe_build,
         'analytics_retention_days' => 30,
-        'analytics_log_level' => $wporg_safe_build ? 'off' : 'all',
-        'analytics_store_request' => false,
-        'analytics_store_response' => false,
+        'analytics_log_level' => 'all',
+        'analytics_store_request' => true,
+        'analytics_store_response' => true,
         'analytics_max_entries' => 5000,
         'analytics_notify_enabled' => false,
         'analytics_notify_email' => '',
         'analytics_notify_frequency' => 'off',
-        'analytics_store_ip' => !$wporg_safe_build,
+        'analytics_store_ip' => true,
         'analytics_anonymize_ip' => $wporg_safe_build ? true : false,
-        'analytics_store_user_identity' => !$wporg_safe_build,
+        'analytics_store_user_identity' => true,
         'webhook_enabled' => false,
         'webhook_url' => '',
         'webhook_events' => 'all',
@@ -143,7 +143,7 @@ function sprout_mcp_get_settings(bool $flush = false): array
             'wp_version'        => true,
             'php_version'       => true,
             'theme_info'        => true,
-            'plugins_list'      => false,
+            'plugins_list'      => true,
             'elementor_version' => true,
             'custom_text'       => '',
         ],
