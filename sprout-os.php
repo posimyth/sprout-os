@@ -17,10 +17,6 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-if (!defined('SPROUT_MCP_WPORG_SAFE_BUILD')) {
-    define('SPROUT_MCP_WPORG_SAFE_BUILD', true);
-}
-
 define('SPROUT_MCP_VERSION', '0.0.1');
 define('SPROUT_MCP_PLUGIN_FILE', __FILE__);
 define('SPROUT_MCP_PLUGIN_DIR', plugin_dir_path(__FILE__));

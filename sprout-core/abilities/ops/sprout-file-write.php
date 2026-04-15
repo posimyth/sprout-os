@@ -66,8 +66,9 @@ wp_register_ability( 'sprout/write-file', [
         'annotations'  => [
             'title'        => 'Write File',
             'instructions' => implode( "\n", [
-                'EXECUTABLE FILE SAFETY:',
-                'Executable PHP file operations are disabled in the WordPress.org-safe build.',
+                'PHP SANDBOX:',
+                'PHP-executable files (.php, .phtml, .phar, etc.) can ONLY live in',
+                'wp-content/sproutos-mcp-sandbox/. Non-PHP goes anywhere under ABSPATH.',
                 '',
                 'SAFETY:',
                 'backup=true creates a .bak before overwriting.',

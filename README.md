@@ -443,19 +443,6 @@ sprout-os/
 
 ---
 
-## WordPress.org Safe Build
-
-The GitHub version includes all features. The WordPress.org submission build (`SPROUT_MCP_WPORG_SAFE_BUILD = true`) restricts:
-
-- Remote PHP code execution (disabled)
-- Dynamic sandbox code loading (disabled)
-- Executable theme file writes (disabled)
-- PHP writes outside sandbox (always restricted)
-
-This ensures compliance with WordPress.org plugin guidelines while keeping the full feature set available for self-hosted/GitHub installs.
-
----
-
 ## Built by POSIMYTH
 
 SproutOS is built by the [POSIMYTH](https://posimyth.com) team, the same team powering **500,000+ WordPress websites** with:
@@ -522,7 +509,7 @@ SproutOS is designed for single-site installations. Multisite support is not off
 <details>
 <summary><strong>What's the difference between the GitHub version and the WordPress.org version?</strong></summary>
 
-The GitHub version includes all features: PHP code execution, sandbox file loading, and executable theme file writes. The WordPress.org submission build disables these advanced features to comply with WordPress.org plugin guidelines. Both versions share the same core - the only difference is the `SPROUT_MCP_WPORG_SAFE_BUILD` flag.
+SproutOS is maintained as one core product. Feature availability depends on the plugin build and release policy you choose for your site.
 </details>
 
 <details>

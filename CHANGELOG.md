@@ -36,7 +36,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Privacy controls for IP storage, IP anonymization, user identity, request/response body logging
 - Server instruction customization (WP version, PHP version, theme info, plugin list, custom text)
 - Admin bar status indicator (Sprout MCP: ON/OFF)
-- WordPress.org safe build mode (`SPROUT_MCP_WPORG_SAFE_BUILD`) that disables code execution and dynamic file loading for plugin directory compliance
 - Bundled MCP Adapter with HTTP and STDIO transport support
 - WP-CLI integration via `wp mcp-adapter serve` and `wp mcp-adapter list`
 - Clean uninstall handler removing all options, database tables, transients, cron jobs, and sandbox directory

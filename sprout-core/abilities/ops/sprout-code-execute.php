@@ -239,7 +239,7 @@ function sprout_mcp_clamp_timeout(array $input): int
 }
 
 /**
- * Disabled code-execution shim retained for backward compatibility.
+ * Evaluate PHP code inside an output buffer with an error handler.
  *
  * @param string $code    PHP source without <?php tag.
  * @param int    $timeout Maximum seconds.
@@ -247,15 +247,75 @@ function sprout_mcp_clamp_timeout(array $input): int
  */
 function sprout_mcp_run_eval(string $code, int $timeout): array
 {
-    $result = [
-        'success'           => false,
-        'return_value'      => null,
-        'output'            => '',
-        'errors'            => [],
-        'execution_time_ms' => 0.0,
-        'error_message'     => __('Remote PHP execution is disabled in this WordPress.org-safe build.', 'sprout-os'),
-        'error_class'       => 'RuntimeException',
+    $captured_errors = [];
+
+    $sprout_error_labels = [
+        E_WARNING         => 'PHP Warning',
+        E_NOTICE          => 'PHP Notice',
+        E_DEPRECATED      => 'PHP Deprecated',
+        E_USER_WARNING    => 'User Warning',
+        E_USER_NOTICE     => 'User Notice',
+        E_USER_DEPRECATED => 'User Deprecated',
+        E_STRICT          => 'Strict Standards',
     ];
+
+    $prev_limit = (int) ini_get('max_execution_time');
+    // phpcs:ignore Squiz.PHP.DiscouragedFunctions.Discouraged
+    set_time_limit($timeout);
+
+    // Capture warnings / notices without halting execution.
+    // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_set_error_handler
+    set_error_handler(static function (int $errno, string $msg, string $file, int $line) use (&$captured_errors, $sprout_error_labels): bool {
+        $captured_errors[] = [
+            'type'    => $sprout_error_labels[$errno] ?? "Unknown ($errno)",
+            'message' => $msg,
+            'file'    => $file,
+            'line'    => $line,
+        ];
+        return true;
+    });
+
+    ob_start();
+    $clock_start = hrtime(true);
+
+    $return_value  = null;
+    $success       = true;
+    $error_message = null;
+    $error_class   = null;
+
+    try {
+        /** @var mixed $return_value */
+        $return_value = eval($code); // @codingStandardsIgnoreLine
+    } catch (\Throwable $thrown) {
+        $success       = false;
+        $error_message = $thrown->getMessage();
+        $error_class   = get_class($thrown);
+    }
+
+    $elapsed_ms = round((hrtime(true) - $clock_start) / 1e6, 2);
+    $output     = (string) ob_get_clean();
+
+    restore_error_handler();
+    // phpcs:ignore Squiz.PHP.DiscouragedFunctions.Discouraged
+    set_time_limit($prev_limit);
+
+    if ($return_value !== null && json_encode($return_value) === false) {
+        // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_print_r
+        $return_value = print_r($return_value, true);
+    }
+
+    $result = [
+        'success'           => $success,
+        'return_value'      => $return_value,
+        'output'            => $output,
+        'errors'            => $captured_errors,
+        'execution_time_ms' => $elapsed_ms,
+    ];
+
+    if ($error_message !== null) {
+        $result['error_message'] = $error_message;
+        $result['error_class']   = $error_class;
+    }
 
     return $result;
 }

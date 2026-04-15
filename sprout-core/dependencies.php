@@ -7,46 +7,6 @@ if (!defined('ABSPATH')) {
 }
 
 /**
- * WordPress.org-safe builds must not expose remote executable-code features.
- *
- * Normal/plugin-development installs keep full functionality. For a
- * WordPress.org submission build, explicitly define the constant below or
- * use the filter to enable the restricted mode.
- */
-function sprout_mcp_is_wporg_safe_build(): bool
-{
-    $default = defined('SPROUT_MCP_WPORG_SAFE_BUILD')
-        ? (bool) SPROUT_MCP_WPORG_SAFE_BUILD
-        : false;
-
-    return (bool) apply_filters('sprout_mcp_wporg_safe_build', $default);
-}
-
-/**
- * Whether remote PHP execution should be available.
- */
-function sprout_mcp_allows_remote_code_execution(): bool
-{
-    return !sprout_mcp_is_wporg_safe_build();
-}
-
-/**
- * Whether sandbox PHP loading should be available.
- */
-function sprout_mcp_allows_dynamic_code_loading(): bool
-{
-    return !sprout_mcp_is_wporg_safe_build();
-}
-
-/**
- * Whether executable theme-file writes should be allowed.
- */
-function sprout_mcp_allows_theme_php_writes(): bool
-{
-    return !sprout_mcp_is_wporg_safe_build();
-}
-
-/**
  * Check whether Abilities API is available.
  */
 function sprout_mcp_has_abilities_api(): bool
@@ -108,8 +68,6 @@ function sprout_mcp_get_settings(bool $flush = false): array
         return $cached;
     }
 
-    $wporg_safe_build = sprout_mcp_is_wporg_safe_build();
-
     $defaults = [
         'safe_mode_enabled' => false,
         'safe_mode_previous_disabled' => [],
@@ -123,17 +81,17 @@ function sprout_mcp_get_settings(bool $flush = false): array
             'nexter_blocks'    => true,
             'wdesignkit'       => true,
         ],
-        'analytics_enabled' => !$wporg_safe_build,
+        'analytics_enabled' => true,
         'analytics_retention_days' => 30,
         'analytics_log_level' => 'all',
-        'analytics_store_request' => true,
-        'analytics_store_response' => true,
+        'analytics_store_request' => false,
+        'analytics_store_response' => false,
         'analytics_max_entries' => 5000,
         'analytics_notify_enabled' => false,
         'analytics_notify_email' => '',
         'analytics_notify_frequency' => 'off',
         'analytics_store_ip' => true,
-        'analytics_anonymize_ip' => $wporg_safe_build ? true : false,
+        'analytics_anonymize_ip' => false,
         'analytics_store_user_identity' => true,
         'webhook_enabled' => false,
         'webhook_url' => '',

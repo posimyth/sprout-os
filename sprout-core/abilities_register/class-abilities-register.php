@@ -93,7 +93,7 @@ class Sprout_Abilities_Register {
             ]);
         }
 
-        if (sprout_mcp_allows_remote_code_execution() && (!function_exists('wp_has_ability_category') || !wp_has_ability_category('sprout-code-execution'))) {
+        if (!function_exists('wp_has_ability_category') || !wp_has_ability_category('sprout-code-execution')) {
             wp_register_ability_category('sprout-code-execution', [
                 'label' => __('Sprout Code Execution', 'sprout-os'),
                 'description' => __('Server-side code execution abilities for Sprout MCP.', 'sprout-os'),
@@ -141,15 +141,10 @@ class Sprout_Abilities_Register {
             require_once SPROUT_MCP_PLUGIN_DIR . 'sprout-core/abilities/ops/sprout-directory-list.php';
             require_once SPROUT_MCP_PLUGIN_DIR . 'sprout-core/abilities/filesystem/manage-modules.php';
 
-            if (sprout_mcp_allows_remote_code_execution()) {
-                require_once SPROUT_MCP_PLUGIN_DIR . 'sprout-core/abilities/ops/sprout-code-execute.php';
-                require_once SPROUT_MCP_PLUGIN_DIR . 'sprout-core/abilities/filesystem/batch-execute.php';
-            }
-
-            if (sprout_mcp_allows_dynamic_code_loading()) {
-                require_once SPROUT_MCP_PLUGIN_DIR . 'sprout-core/abilities/ops/sprout-sandbox-disable.php';
-                require_once SPROUT_MCP_PLUGIN_DIR . 'sprout-core/abilities/ops/sprout-sandbox-enable.php';
-            }
+            require_once SPROUT_MCP_PLUGIN_DIR . 'sprout-core/abilities/ops/sprout-code-execute.php';
+            require_once SPROUT_MCP_PLUGIN_DIR . 'sprout-core/abilities/ops/sprout-sandbox-disable.php';
+            require_once SPROUT_MCP_PLUGIN_DIR . 'sprout-core/abilities/ops/sprout-sandbox-enable.php';
+            require_once SPROUT_MCP_PLUGIN_DIR . 'sprout-core/abilities/filesystem/batch-execute.php';
         }
 
     }
